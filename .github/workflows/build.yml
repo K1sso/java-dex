@@ -19,22 +19,35 @@ jobs:
 
       - name: Компиляция в classes.dex
         run: |
-          # Создаем рабочие каталоги
           mkdir -p bin output
-          
-          # Находим все .java файлы в проекте, где бы они ни лежали
-          find . -name "*.java" > sources.txt
-          
-          # Проверяем, есть ли вообще файлы для сборки
-          if [ ! -s sources.txt ]; then
+
+          # 1. Проверяем наличие .java файлов
+          JAVA_FILES=$(find . -maxdepth 2 -iname "*.java")
+          if [ -z "$JAVA_FILES" ]; then
             echo "Ошибка: в репозитории не найдено ни одного .java файла!"
             exit 1
           fi
-          
-          # 1. Компилируем Java-код в JVM байт-код (.class)
+
+          # 2. Авто-исправление имен файлов под объявленные public классы
+          find . -maxdepth 2 -iname "*.java" | while read -r file; do
+            # Извлекаем имя класса после public class / public enum / public interface
+            CLASS_NAME=$(grep -m1 -oE 'public[[:space:]]+(final[[:space:]]+|abstract[[:space:]]+)?(class|enum|interface|record)[[:space:]]+[a-zA-Z0-9_$]+' "$file" | awk '{print $NF}')
+            
+            if [ -n "$CLASS_NAME" ]; then
+              DIR=$(dirname "$file")
+              TARGET="$DIR/${CLASS_NAME}.java"
+              if [ "$file" != "$TARGET" ]; then
+                echo "Авто-переименование: $file -> $TARGET"
+                mv "$file" "$TARGET"
+              fi
+            fi
+          done
+
+          # 3. Собираем актуальный список и компилируем
+          find . -maxdepth 2 -iname "*.java" > sources.txt
           javac -d bin @sources.txt
-          
-          # 2. Ищем утилиту d8 в предустановленном Android SDK и упаковываем классы в classes.dex
+
+          # 4. Упаковываем байт-код в classes.dex через d8
           D8_PATH=$(find $ANDROID_SDK_ROOT/build-tools -name d8 | sort -V | tail -n 1)
           "$D8_PATH" $(find bin -name "*.class") --output output/
 
