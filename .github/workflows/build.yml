@@ -1,0 +1,45 @@
+name: Compile DEX
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Скачивание репозитория
+        uses: actions/checkout@v4
+
+      - name: Установка окружения Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Компиляция в classes.dex
+        run: |
+          # Создаем рабочие каталоги
+          mkdir -p bin output
+          
+          # Находим все .java файлы в проекте, где бы они ни лежали
+          find . -name "*.java" > sources.txt
+          
+          # Проверяем, есть ли вообще файлы для сборки
+          if [ ! -s sources.txt ]; then
+            echo "Ошибка: в репозитории не найдено ни одного .java файла!"
+            exit 1
+          fi
+          
+          # 1. Компилируем Java-код в JVM байт-код (.class)
+          javac -d bin @sources.txt
+          
+          # 2. Ищем утилиту d8 в предустановленном Android SDK и упаковываем классы в classes.dex
+          D8_PATH=$(find $ANDROID_SDK_ROOT/build-tools -name d8 | sort -V | tail -n 1)
+          "$D8_PATH" $(find bin -name "*.class") --output output/
+
+      - name: Загрузка готового classes.dex
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-dex
+          path: output/classes.dex
