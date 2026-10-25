@@ -19,26 +19,35 @@ jobs:
           set -euo pipefail
           mkdir -p bin dex stage
 
-          ANDROID_JAR=$(ls -d "$ANDROID_HOME"/platforms/*/android.jar | sort -V | tail -n 1)
-          D8=$(find "$ANDROID_HOME/build-tools" -name d8 -type f | sort -V | tail -n 1)
-          DEXDUMP=$(find "$ANDROID_HOME/build-tools" -name dexdump -type f | sort -V | tail -n 1)
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          ANDROID_JAR=$(ls -d "$SDK"/platforms/*/android.jar | sort -V | tail -n 1)
+          D8=$(find "$SDK/build-tools" -name d8 -type f | sort -V | tail -n 1)
 
-          # Компилируем против android.jar и заглушки API
+          echo "SDK=$SDK"
+          echo "ANDROID_JAR=$ANDROID_JAR"
+          echo "D8=$D8"
+
           javac -nowarn -classpath "$ANDROID_JAR" -d bin \
             $(find stub -name '*.java') \
             $(find java -name '*.java')
 
-          # В dex кладём ТОЛЬКО свой класс, заглушку API не кладём
-          "$D8" --lib "$ANDROID_JAR" --output dex/ bin/deven1/beep/SoundPlugin.class
+          if [ ! -f bin/deven1/beep/SoundPlugin.class ]; then
+            echo "ERROR: javac did not produce SoundPlugin.class"
+            exit 1
+          fi
 
-          # Самопроверка: класс обязан быть внутри dex, иначе сборка падает
-          "$DEXDUMP" dex/classes.dex | grep -q 'Ldeven1/beep/SoundPlugin;' \
-            || { echo "ERROR: SoundPlugin not found in classes.dex"; exit 1; }
+          # В dex идут ВСЕ class-файлы твоего пакета, включая SoundPlugin$1.class
+          "$D8" --lib "$ANDROID_JAR" --output dex/ $(find bin/deven1 -name '*.class')
 
-          # .mtp: в корне архива только manifest.json и classes.dex
+          if ! grep -q 'Ldeven1/beep/SoundPlugin;' dex/classes.dex; then
+            echo "ERROR: class not found inside classes.dex"
+            exit 1
+          fi
+
           cp manifest.json stage/
           cp dex/classes.dex stage/
           (cd stage && zip -X ../deven1.beep.mtp manifest.json classes.dex)
+          ls -l deven1.beep.mtp
 
       - uses: actions/upload-artifact@v4
         with:
