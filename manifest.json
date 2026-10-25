@@ -1,0 +1,11 @@
+{
+  "id": "deven1.beep",
+  "name": "First launch beep",
+  "name_ru": "Сигнал при первом входе",
+  "version": "1.0",
+  "author": "DeVen1",
+  "description": "Plays one short system beep when TikTok is first resumed after process start.",
+  "description_ru": "Проигрывает один короткий системный сигнал при первом появлении TikTok на переднем плане после запуска процесса.",
+  "entry": "deven1.beep.SoundPlugin",
+  "min_api": 1
+}
