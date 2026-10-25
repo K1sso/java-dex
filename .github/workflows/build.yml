@@ -1,4 +1,4 @@
-name: Compile DEX
+name: build-mtp
 on:
   push:
   workflow_dispatch:
@@ -6,53 +6,41 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Скачивание репозитория
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Установка окружения Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: Компиляция в classes.dex
+      - name: Compile, dex, pack
         run: |
-          mkdir -p bin output
+          set -euo pipefail
+          mkdir -p bin dex stage
 
-          # 1. Проверяем наличие .java файлов
-          JAVA_FILES=$(find . -maxdepth 2 -iname "*.java")
-          if [ -z "$JAVA_FILES" ]; then
-            echo "Ошибка: в репозитории не найдено ни одного .java файла!"
-            exit 1
-          fi
+          ANDROID_JAR=$(ls -d "$ANDROID_HOME"/platforms/*/android.jar | sort -V | tail -n 1)
+          D8=$(find "$ANDROID_HOME/build-tools" -name d8 -type f | sort -V | tail -n 1)
+          DEXDUMP=$(find "$ANDROID_HOME/build-tools" -name dexdump -type f | sort -V | tail -n 1)
 
-          # 2. Авто-исправление имен файлов под объявленные public классы
-          find . -maxdepth 2 -iname "*.java" | while read -r file; do
-            # Извлекаем имя класса после public class / public enum / public interface
-            CLASS_NAME=$(grep -m1 -oE 'public[[:space:]]+(final[[:space:]]+|abstract[[:space:]]+)?(class|enum|interface|record)[[:space:]]+[a-zA-Z0-9_$]+' "$file" | awk '{print $NF}')
-            
-            if [ -n "$CLASS_NAME" ]; then
-              DIR=$(dirname "$file")
-              TARGET="$DIR/${CLASS_NAME}.java"
-              if [ "$file" != "$TARGET" ]; then
-                echo "Авто-переименование: $file -> $TARGET"
-                mv "$file" "$TARGET"
-              fi
-            fi
-          done
+          # Компилируем против android.jar и заглушки API
+          javac -nowarn -classpath "$ANDROID_JAR" -d bin \
+            $(find stub -name '*.java') \
+            $(find java -name '*.java')
 
-          # 3. Собираем актуальный список и компилируем
-          find . -maxdepth 2 -iname "*.java" > sources.txt
-          javac -d bin @sources.txt
+          # В dex кладём ТОЛЬКО свой класс, заглушку API не кладём
+          "$D8" --lib "$ANDROID_JAR" --output dex/ bin/deven1/beep/SoundPlugin.class
 
-          # 4. Упаковываем байт-код в classes.dex через d8
-          D8_PATH=$(find $ANDROID_SDK_ROOT/build-tools -name d8 | sort -V | tail -n 1)
-          "$D8_PATH" $(find bin -name "*.class") --output output/
+          # Самопроверка: класс обязан быть внутри dex, иначе сборка падает
+          "$DEXDUMP" dex/classes.dex | grep -q 'Ldeven1/beep/SoundPlugin;' \
+            || { echo "ERROR: SoundPlugin not found in classes.dex"; exit 1; }
 
-      - name: Загрузка готового classes.dex
-        uses: actions/upload-artifact@v4
+          # .mtp: в корне архива только manifest.json и classes.dex
+          cp manifest.json stage/
+          cp dex/classes.dex stage/
+          (cd stage && zip -X ../deven1.beep.mtp manifest.json classes.dex)
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: compiled-dex
-          path: output/classes.dex
+          name: deven1-beep-mtp
+          path: deven1.beep.mtp
